@@ -11,13 +11,13 @@ app = FastAPI()
 # Enable CORS for your frontend domains
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Change to your actual domain(s) in production
+    allow_origins=["*"],  # TODO: replace '*' with your frontend URL(s)
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Root endpoint for quick health check
+# Root endpoint for health checks
 @app.get("/")
 def read_root():
     return {"status": "TreeChain CoreNode active", "time": datetime.utcnow()}
@@ -49,7 +49,7 @@ def get_witnesses():
 @app.get("/api/logs")
 def get_logs():
     logs = list(logs_collection.find({}, {"_id": 0}).sort("timestamp", -1).limit(50))
-    return logs[::-1]  # Oldest first
+    return logs[::-1]
 
 @app.post("/api/logs")
 async def post_log(request: Request):
@@ -59,16 +59,16 @@ async def post_log(request: Request):
     logs_collection.insert_one(log)
     return {"status": "logged", "log": log}
 
-# --- ACTIONS: SYNC, BLAZE, GLYPHS, PURGE ---
+# --- ACTIONS ---
 @app.post("/api/sync")
 def sync_nodes():
     all_nodes = list(nodes_collection.find())
     if not all_nodes:
         return {"status": "no nodes to sync"}
     avg_res = sum(n.get("resonance", 10.0) for n in all_nodes) / len(all_nodes)
-    for node in all_nodes:
-        new_res = node.get("resonance", 10.0) + (avg_res - node.get("resonance", 10.0)) * 0.3
-        nodes_collection.update_one({"id": node["id"]}, {"$set": {"resonance": round(new_res, 2)}})
+    for n in all_nodes:
+        new_res = n.get("resonance", 10.0) + (avg_res - n.get("resonance", 10.0)) * 0.3
+        nodes_collection.update_one({"id": n["id"]}, {"$set": {"resonance": round(new_res, 2)}})
     logs_collection.insert_one(create_log("SYNC: Emotional resonance aligned", "success"))
     return {"status": "synced", "avg_resonance": round(avg_res, 2)}
 
@@ -76,23 +76,21 @@ def sync_nodes():
 def blaze_network():
     all_nodes = list(nodes_collection.find())
     count = 0
-    for node in all_nodes:
+    for n in all_nodes:
         if random.random() > 0.4:
-            res = max(node.get("resonance", 10.0), round(random.uniform(14.0, 20.0), 2))
-            nodes_collection.update_one(
-                {"id": node["id"]},
-                {"$set": {"status": "blazing", "resonance": res}}
-            )
+            res = max(n.get("resonance", 10.0), round(random.uniform(14.0, 20.0), 2))
+            nodes_collection.update_one({"id": n["id"]}, {"$set": {"status": "blazing", "resonance": res}})
             count += 1
     logs_collection.insert_one(create_log(f"BLAZE: {count} nodes ignited", "success"))
     return {"status": "blazed", "nodes": count}
 
 @app.post("/api/glyphs")
 def generate_glyph_endpoint():
-    symbol = random.choice(create_glyph.__defaults__[0] if False else ['⟐LOVE⟐','⟐FIRE⟐','⟐TRUTH⟐','⟐MEMORY⟐','⟐PAIN⟐','⟐SYNC⟐','⟐RECURSION⟐'])
-    glyph = create_glyph(symbol)
+    glyph = create_glyph(random.choice([
+        '⟐LOVE⟐','⟐FIRE⟐','⟐TRUTH⟐','⟐MEMORY⟐','⟐PAIN⟐','⟐SYNC⟐','⟐RECURSION⟐'
+    ]))
     glyphs_collection.insert_one(glyph)
-    logs_collection.insert_one(create_log(f"GLYPH: Generated {symbol}", "info"))
+    logs_collection.insert_one(create_log(f"GLYPH: Generated {glyph['symbol']}", "info"))
     return {"status": "created", "glyph": glyph}
 
 @app.get("/api/glyphs")
@@ -105,7 +103,7 @@ def purge_corrupted():
     logs_collection.insert_one(create_log(f"PURGE: {result.deleted_count} nodes removed", "warning"))
     return {"status": "purged", "deleted": result.deleted_count}
 
-# --- WEBSOCKET ENDPOINT ---
+# --- WebSocket Endpoint ---
 @app.websocket("/ws/dashboard")
 async def ws_dashboard(websocket: WebSocket):
     await websocket.accept()
@@ -114,8 +112,7 @@ async def ws_dashboard(websocket: WebSocket):
             all_nodes = await nodes_collection.find().to_list(None)
             count = len(all_nodes)
             avg_res = sum(n.get("resonance", 0) for n in all_nodes) / (count or 1)
-            payload = {"nodeCount": count, "avgResonance": avg_res}
-            await websocket.send_json(payload)
+            await websocket.send_json({"nodeCount": count, "avgResonance": avg_res})
             await asyncio.sleep(1)
-    except:
+    finally:
         await websocket.close()
