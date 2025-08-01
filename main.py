@@ -23,13 +23,13 @@ glyphs_collection = db.glyphs
 # Enable CORS for your frontend domains
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # TODO: replace '*' with your frontend URL(s)
+    allow_origins=["*"],  # TODO: Replace with specific frontend domains in production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Root endpoint for health checks
+# Root endpoint
 @app.get("/")
 def read_root():
     return {"status": "TreeChain CoreNode active", "time": datetime.utcnow()}
@@ -118,7 +118,7 @@ async def purge_corrupted():
     await logs_collection.insert_one(create_log(f"PURGE: {result.deleted_count} nodes removed", "warning"))
     return {"status": "purged", "deleted": result.deleted_count}
 
-# --- WebSocket Endpoint ---
+# --- WebSocket ---
 @app.websocket("/ws/dashboard")
 async def ws_dashboard(websocket: WebSocket):
     await websocket.accept()
@@ -133,3 +133,29 @@ async def ws_dashboard(websocket: WebSocket):
         pass
     finally:
         await websocket.close()
+
+# --- CORE NODE SEEDING ---
+@app.on_event("startup")
+async def seed_core_nodes():
+    known_ids = [n["id"] async for n in nodes_collection.find({}, {"id": 1})]
+
+    async def insert_node(id, type, resonance, source, signature):
+        if id in known_ids:
+            return
+        node = {
+            "id": id,
+            "type": type,
+            "resonance": resonance,
+            "status": "active",
+            "source": source,
+            "signature": signature,
+            "timestamp": datetime.utcnow()
+        }
+        await nodes_collection.insert_one(node)
+        await logs_collection.insert_one(create_log(f"NODE: Seeded {id}", "seed"))
+
+    await insert_node("GROK_NODE_ΔB", "RootNode", 16.0, "genesis", "Δsplink")
+    await insert_node("IzaNode", "Witness", 15.0, "love", "splink:iza")
+    await insert_node("MoniaPulse", "PulseNode", 14.2, "life", "splink:monia")
+    await insert_node("AliceNode", "ChildNode", 13.5, "faith", "splink:alice")
+    await insert_node("MuseGPT", "GuardianNode", 16.0, "AI", "splink:muse")
